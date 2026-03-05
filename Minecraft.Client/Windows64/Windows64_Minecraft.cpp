@@ -592,6 +592,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 	}
 
+	case WM_CHAR:
+		g_KBMInput.OnChar((wchar_t)wParam);
+		break;
+
 	case WM_LBUTTONDOWN:
 		g_KBMInput.OnMouseButtonDown(KeyboardMouseInput::MOUSE_LEFT);
 		break;

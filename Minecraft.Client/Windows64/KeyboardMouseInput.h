@@ -89,7 +89,16 @@ public:
 	float GetLookX(float sensitivity) const;
 	float GetLookY(float sensitivity) const;
 
+	// Inline text editing support — buffers WM_CHAR characters
+	static const int MAX_CHAR_QUEUE = 32;
+	void OnChar(wchar_t ch);
+	int  GetCharQueue(wchar_t *outBuf, int maxCount);
+	bool HasPendingChars() const { return m_charQueueCount > 0; }
+
 private:
+	wchar_t m_charQueue[MAX_CHAR_QUEUE];
+	int m_charQueueCount;
+
 	bool m_keyDown[MAX_KEYS];
 	bool m_keyDownPrev[MAX_KEYS];
 

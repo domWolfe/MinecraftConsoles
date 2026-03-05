@@ -21,6 +21,7 @@
 
 #include <windows.h>
 #include "Xbox\Resource.h"
+#include "..\..\Windows64\KeyboardMouseInput.h"
 #endif
 
 #define GAME_CREATE_ONLINE_TIMER_ID 0
@@ -84,6 +85,10 @@ UIScene_CreateWorldMenu::UIScene_CreateWorldMenu(int iPad, void *initData, UILay
 	m_iGameModeId = GameType::SURVIVAL->getId();
 	m_pDLCPack = NULL;
 	m_bRebuildTouchBoxes = false;
+
+#ifdef _WINDOWS64
+	m_bInlineEditing = false;
+#endif
 
 	m_bMultiplayerAllowed = ProfileManager.IsSignedInLive( m_iPad ) && ProfileManager.AllowedToPlayMultiplayer(m_iPad);
 	// 4J-PB - read the settings for the online flag. We'll only save this setting if the user changed it.
@@ -275,6 +280,15 @@ UIControl* UIScene_CreateWorldMenu::GetMainPanel()
 
 void UIScene_CreateWorldMenu::handleDestroy()
 {
+#ifdef _WINDOWS64
+	if (m_bInlineEditing)
+	{
+		m_bInlineEditing = false;
+		wchar_t discard[KeyboardMouseInput::MAX_CHAR_QUEUE];
+		g_KBMInput.GetCharQueue(discard, KeyboardMouseInput::MAX_CHAR_QUEUE);
+	}
+#endif
+
 #ifdef __PSVITA__
 	app.DebugPrintf("missing InputManager.DestroyKeyboard on Vita !!!!!!\n");
 #endif
@@ -288,6 +302,47 @@ void UIScene_CreateWorldMenu::handleDestroy()
 void UIScene_CreateWorldMenu::tick()
 {
 	UIScene::tick();
+
+#ifdef _WINDOWS64
+	if (m_bInlineEditing)
+	{
+		// Process queued characters from the keyboard
+		wchar_t chars[KeyboardMouseInput::MAX_CHAR_QUEUE];
+		int count = g_KBMInput.GetCharQueue(chars, KeyboardMouseInput::MAX_CHAR_QUEUE);
+		bool changed = false;
+		for (int i = 0; i < count; i++)
+		{
+			wchar_t ch = chars[i];
+			if (ch == L'\b')
+			{
+				// Backspace
+				if (!m_editBuffer.empty())
+				{
+					m_editBuffer.erase(m_editBuffer.length() - 1, 1);
+					changed = true;
+				}
+			}
+			else if (ch == L'\r' || ch == L'\n' || ch == L'\x1b')
+			{
+				// Enter/Escape are handled in handleInput, skip here
+			}
+			else if (ch >= L' ' && (int)m_editBuffer.length() < WORLD_NAME_MAX_CHARS)
+			{
+				// Printable character within limit
+				m_editBuffer += ch;
+				changed = true;
+			}
+		}
+
+		if (changed)
+		{
+			if (m_editBuffer.empty())
+				m_editWorldName.setLabel(L" ");
+			else
+				m_editWorldName.setLabel((wchar_t *)m_editBuffer.c_str());
+		}
+	}
+#endif
 
 	if(m_iSetTexturePackDescription >= 0 )
 	{
@@ -355,6 +410,51 @@ void UIScene_CreateWorldMenu::handleInput(int iPad, int key, bool repeat, bool p
 {
 	if(m_bIgnoreInput) return;
 
+#ifdef _WINDOWS64
+	if (m_bInlineEditing)
+	{
+		// While inline editing, consume Enter/Escape and block all other menu navigation
+		if (pressed)
+		{
+			if (key == ACTION_MENU_OK || key == ACTION_MENU_CANCEL)
+			{
+				if (key == ACTION_MENU_CANCEL)
+				{
+					// Restore original text
+					m_editBuffer = m_editOriginal;
+					m_worldName = m_editOriginal;
+					m_editWorldName.setLabel((wchar_t *)m_editOriginal.c_str());
+				}
+				else
+				{
+					// Confirm — apply the edit buffer
+					if (!m_editBuffer.empty())
+					{
+						m_worldName = m_editBuffer;
+						m_editWorldName.setLabel((wchar_t *)m_editBuffer.c_str());
+					}
+					else
+					{
+						// Empty name — revert to original
+						m_worldName = m_editOriginal;
+						m_editWorldName.setLabel((wchar_t *)m_editOriginal.c_str());
+					}
+				}
+
+				m_editWorldName.setFocus(false);
+				m_bInlineEditing = false;
+				m_buttonCreateWorld.setEnable(!m_worldName.empty());
+
+				// Drain any remaining queued characters so they don't leak
+				wchar_t discard[KeyboardMouseInput::MAX_CHAR_QUEUE];
+				g_KBMInput.GetCharQueue(discard, KeyboardMouseInput::MAX_CHAR_QUEUE);
+			}
+		}
+		handled = true;
+		return;
+	}
+#endif
+
 	ui.AnimateKeyPress(m_iPad, key, repeat, pressed, released);
 
 	switch(key)
@@ -376,7 +476,7 @@ void UIScene_CreateWorldMenu::handleInput(int iPad, int key, bool repeat, bool p
 		if ( pressed && controlHasFocus(m_checkboxOnline.getId()) && !m_checkboxOnline.IsEnabled() )
 		{
 			UINT uiIDA[1] = { IDS_CONFIRM_OK };
-			ui.RequestErrorMessage(IDS_PRO_NOTONLINE_TITLE, IDS_PRO_XBOXLIVE_NOTIFICATION, uiIDA, 1, iPad); 
+			ui.RequestErrorMessage(IDS_PRO_NOTONLINE_TITLE, IDS_PRO_XBOXLIVE_NOTIFICATION, uiIDA, 1, iPad);
 		}
 #endif
 
@@ -387,7 +487,7 @@ void UIScene_CreateWorldMenu::handleInput(int iPad, int key, bool repeat, bool p
 	case ACTION_MENU_OTHER_STICK_UP:
 	case ACTION_MENU_OTHER_STICK_DOWN:
 		sendInputToMovie(key, repeat, pressed, released);
-		
+
 		bool bOnlineGame = m_checkboxOnline.IsChecked();
 		if (m_MoreOptionsParams.bOnlineGame != bOnlineGame)
 		{
@@ -416,8 +516,19 @@ void UIScene_CreateWorldMenu::handlePress(F64 controlId, F64 childId)
 	{
 	case eControl_EditWorldName:
 		{
+#ifdef _WINDOWS64
+			// Enter inline editing mode — no system dialog, game keeps running
+			m_bInlineEditing = true;
+			m_editOriginal = m_worldName;
+			m_editBuffer = m_worldName;
+			m_editWorldName.setFocus(true);
+			// Drain any stale characters from the input queue
+			wchar_t discard[KeyboardMouseInput::MAX_CHAR_QUEUE];
+			g_KBMInput.GetCharQueue(discard, KeyboardMouseInput::MAX_CHAR_QUEUE);
+#else
 			m_bIgnoreInput=true;
 			InputManager.RequestKeyboard(app.GetString(IDS_CREATE_NEW_WORLD),m_editWorldName.getLabel(),(DWORD)0,25,&UIScene_CreateWorldMenu::KeyboardCompleteWorldNameCallback,this,C_4JInput::EKeyboardMode_Default);
+#endif
 		}
 		break;
 	case eControl_GameModeToggle:

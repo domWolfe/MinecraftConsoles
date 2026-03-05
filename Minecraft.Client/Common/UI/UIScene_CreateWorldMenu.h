@@ -51,6 +51,13 @@ private:
 	DLCPack * m_pDLCPack;
 	bool m_bRebuildTouchBoxes;
 
+#ifdef _WINDOWS64
+	bool m_bInlineEditing;
+	wstring m_editBuffer;
+	wstring m_editOriginal;
+	static const int WORLD_NAME_MAX_CHARS = 25;
+#endif
+
 public:
 	UIScene_CreateWorldMenu(int iPad, void *initData, UILayer *parentLayer);
 	virtual ~UIScene_CreateWorldMenu();

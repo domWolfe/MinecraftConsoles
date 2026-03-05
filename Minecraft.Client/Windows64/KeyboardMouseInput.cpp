@@ -55,6 +55,7 @@ void KeyboardMouseInput::Init()
 	m_hasInput = false;
 	m_kbmActive = true;
 	m_screenWantsCursorHidden = false;
+	m_charQueueCount = 0;
 
 	RAWINPUTDEVICE rid;
 	rid.usUsagePage = 0x01; // HID_USAGE_PAGE_GENERIC
@@ -379,6 +380,25 @@ float KeyboardMouseInput::GetLookX(float sensitivity) const
 float KeyboardMouseInput::GetLookY(float sensitivity) const
 {
 	return (float)(-m_mouseDeltaY) * sensitivity;
+}
+
+void KeyboardMouseInput::OnChar(wchar_t ch)
+{
+	if (m_charQueueCount < MAX_CHAR_QUEUE)
+		m_charQueue[m_charQueueCount++] = ch;
+}
+
+int KeyboardMouseInput::GetCharQueue(wchar_t *outBuf, int maxCount)
+{
+	int count = (m_charQueueCount < maxCount) ? m_charQueueCount : maxCount;
+	for (int i = 0; i < count; i++)
+		outBuf[i] = m_charQueue[i];
+	// Shift remaining chars
+	int remaining = m_charQueueCount - count;
+	for (int i = 0; i < remaining; i++)
+		m_charQueue[i] = m_charQueue[count + i];
+	m_charQueueCount = remaining;
+	return count;
 }
 
 #endif // _WINDOWS64
